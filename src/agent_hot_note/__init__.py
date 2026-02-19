@@ -1,0 +1,2 @@
+"""agent-hot-note package."""
+
