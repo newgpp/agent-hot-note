@@ -1,6 +1,6 @@
 # agent-hot-note
 
-热点笔记生成服务（Phase 1，Mock 版本，异步实现）。
+热点笔记生成服务（Phase 2，真实 DeepSeek + Tavily，异步实现）。
 
 ## 1. 环境要求
 
@@ -36,6 +36,21 @@ pip install -e ".[dev]"
 uvicorn agent_hot_note.api.app:app --reload
 ```
 
+## 3.1 环境变量
+
+先创建 `.env`（可参考 `.env.example`）：
+
+```bash
+cp .env.example .env
+```
+
+关键配置：
+
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL=https://api.deepseek.com`
+- `OPENAI_MODEL=deepseek-chat`
+- `TAVILY_API_KEY`
+
 服务启动后：
 
 - 健康检查：`GET http://127.0.0.1:8000/healthz`
@@ -56,7 +71,8 @@ curl -X POST "http://127.0.0.1:8000/generate" \
   "markdown": "...",
   "meta": {
     "stages": ["research", "write", "edit"],
-    "query": "AI 笔记"
+    "query": "AI 笔记",
+    "queries": ["AI 笔记"]
   }
 }
 ```

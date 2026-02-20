@@ -1,209 +1,156 @@
 # DEV_NOTES.md --- agent-hot-note（三阶段实现版）
 
-> 项目目标：分阶段实现 FastAPI + CrewAI + DeepSeek + Tavily 的可扩展
-> Agent 服务\
-> 原则：先跑流程 → 再接真实能力 → 最后做工程优化
+> 项目目标：分阶段实现 FastAPI + CrewAI + DeepSeek + Tavily 的可扩展 Agent 服务  
+> 原则：先跑流程 -> 再接真实能力 -> 最后做工程优化
 
 ------------------------------------------------------------------------
 
-# 最新进度（2026-02-19）
+# 当前状态（2026-02-20）
 
-## ✅ 今日完成
+## ✅ 验收结论
 
-- 已改为 **纯 CrewAI 执行链**（`research -> write -> edit`），不再走外层 MockLLM 三阶段 fallback。
-- 已实现 **CrewAI 内部 Mock**：通过 mock `litellm.completion` 返回固定结果，保持接口可离线联调。
-- 已修复 CrewAI ReAct 解析报错：mock 输出统一改为 `Thought + Final Answer` 格式。
-- 已增加运行稳定性设置：
-  - `OTEL_SDK_DISABLED=true`（禁用 telemetry）
-  - `CREWAI_STORAGE_DIR=.crewai`（本地可写存储目录）
-- 依赖与运行环境已锁定到当前方案：
-  - Python 要求：`>=3.11`
-  - `fastapi==0.115.8`
-  - `uvicorn==0.34.0`
-  - `pydantic==2.10.6`
-  - `crewai==0.100.0`
-  - `pytest==8.3.4`
+- 阶段 2 已验收通过
+- 当前主链路为真实能力：`Tavily -> CrewAI(research/write/edit) -> DeepSeek`
+- 运行时已移除 Mock 逻辑与配置开关（无 `USE_MOCK`）
 
-## 🔜 明天继续
+## ✅ 当前能力
 
-- 在 Python 3.11 虚拟环境完整跑一轮 API + pytest。
-- 评估是否把 `litellm` mock 抽成独立模块，减少 `SequentialCrew` 复杂度。
-- 开始推进 Phase 2（接 DeepSeek + Tavily）并保留本地 mock 开关。
+- 接口：
+  - `POST /generate`
+  - `GET /healthz`
+- 真实搜索：
+  - `providers/search/tavily.py`
+  - `search_depth=advanced`
+  - `max_results=5`
+- 真实 LLM：
+  - `providers/llm/deepseek.py`
+  - 通过 OpenAI 兼容方式接 DeepSeek
+- 统一配置：
+  - `config.py`（Pydantic Settings + `.env`）
+- 错误兜底：
+  - LLM 失败时返回结构化错误 `meta.error`
+- 日志：
+  - `tavily.request` / `tavily.request.payload`
+  - `tavily.response` / `tavily.response.payload`
+  - `llm.request` / `llm.response` / `llm.error`
+  - 最终返回前端的 Markdown 全量日志
 
 ------------------------------------------------------------------------
 
-# Phase 1：搭建骨架（全部 Mock，实现最小闭环）
+# Phase 2（当前执行基线）
 
 ## 🎯 目标
 
--   学习 CrewAI 基本流程
--   跑通 FastAPI 接口
--   不依赖真实 LLM 或 Tavily
+接入真实 DeepSeek + Tavily，并保证可观测性和失败可恢复性。
 
-## ✅ 实现内容
+## ✅ DoD（已达成）
 
-### 1. 项目结构
+- 配置 `.env` 后可真实生成内容
+- 返回 `meta` 包含 `query` 和 `queries`
+- 出错不崩溃（返回结构化错误）
+- 日志可追踪 Tavily/LLM 输入输出与关键报文
 
-agent-hot-note/ src/agent_hot_note/ api/ service/ crew/ providers/
-llm/mock.py search/mock.py pipeline/ tests/
+## 关键配置
 
-### 2. FastAPI
-
-接口：
-
-POST /generate\
-GET /healthz
-
-### 3. Crew 流程（sequential）
-
-research → write → edit
-
-### 4. Mock 实现
-
-MockLLM： - 返回固定字符串 - 模拟三阶段调用
-
-MockSearch： - 返回固定 search results 结构
-
-### 5. 返回格式
-
-Markdown 输出：
-
-# 标题（3个）
-
-# 正文
-
-# 标签（10个）
-
-### 6. Phase 1 DoD
-
--   /generate 正常返回 Markdown
--   日志显示 research/write/edit
--   单元测试可运行
--   无需任何 API key
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL=https://api.deepseek.com`
+- `OPENAI_MODEL=deepseek-chat`
+- `TAVILY_API_KEY`
+- `LLM_TIMEOUT_SECONDS`
+- `LLM_NUM_RETRIES`
 
 ------------------------------------------------------------------------
 
-# Phase 2：接入真实 DeepSeek + Tavily
+## Agent 与 LLM 交互图（Mermaid）
 
-## 🎯 目标
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant API as FastAPI /generate
+    participant SVC as GenerateService
+    participant CREW as SequentialCrew
+    participant R as Research Agent
+    participant W as Write Agent
+    participant E as Edit Agent
+    participant TV as Tavily Search
+    participant LLM as DeepSeek (OpenAI-Compatible)
+    participant LOG as Structured Logger
 
-替换 Mock，实现真实能力
+    U->>API: POST /generate(topic)
+    API->>SVC: generate(topic)
+    SVC->>CREW: run(topic)
 
-## ✅ 实现内容
+    R->>TV: search(query, depth=advanced, max_results=5)
+    TV-->>R: search results + snippets
+    R->>LOG: tavily.request / tavily.request.payload
+    TV-->>LOG: tavily.response / tavily.response.payload
 
-### 1. LLM Provider
+    R->>LLM: completion(research prompt + snippets)
+    LLM-->>R: research notes
+    W->>LLM: completion(write prompt + notes)
+    LLM-->>W: draft markdown
+    E->>LLM: completion(edit prompt + draft)
+    LLM-->>E: final markdown + tags
+    LLM-->>LOG: llm.request / llm.response / llm.error
 
-新增：
-
-providers/llm/deepseek.py
-
-读取 .env：
-
-OPENAI_API_KEY OPENAI_BASE_URL=https://api.deepseek.com/v1
-OPENAI_MODEL=deepseek-chat
-
-使用 OpenAI 兼容方式初始化 LLM
-
-### 2. Tavily Provider
-
-新增：
-
-providers/search/tavily.py
-
-使用 TavilyClient.search：
-
-search_depth="advanced" max_results=5
-
-### 3. 替换策略
-
-通过环境变量控制：
-
-USE_MOCK=0 或 1
-
-### 4. Phase 2 DoD
-
--   配置 .env 后能真实生成内容
--   返回 meta 包含 queries
--   出错不崩溃（返回结构化错误）
+    CREW-->>SVC: final markdown + meta(query, queries, error?)
+    SVC->>LOG: generated markdown full
+    SVC-->>API: GenerateResponse
+    API-->>U: 200 OK (markdown, meta)
+```
 
 ------------------------------------------------------------------------
 
-# Phase 3：优化 fallback + 增加记忆
-
-## 🎯 目标
-
-提升稳定性和可复用性
-
-------------------------------------------------------------------------
+# Phase 3（待推进）
 
 ## 3.1 Fallback 优化
 
-实现：pipeline/fallback.py
-
-策略：
-
-1.  site:xiaohongshu.com {topic}
-2.  若结果少 → 多域名 fallback：
-    -   zhihu
-    -   bilibili
-    -   通用 query
-
-质量判断规则： - 结果数量 \< 2 → fallback - 摘要过短 → fallback -
-标题重复率高 → fallback
-
-meta 必须返回：
-
-fallback_triggered: true/false queries: \[...\]
-
-------------------------------------------------------------------------
+- 目标：提升搜索质量与稳定性
+- 计划：
+  1. `site:xiaohongshu.com {topic}`
+  2. 结果不足时多域名 fallback（zhihu / bilibili / 通用 query）
+- 规则：
+  - 结果数量 < 2 -> fallback
+  - 摘要过短 -> fallback
+  - 标题重复率高 -> fallback
 
 ## 3.2 记忆机制（轻量版）
 
-目录：memory/
-
-### 1️⃣ Topic Memory
-
-存储：
-
-topic_hash → 最终 Markdown + 要点
-
-命中时直接返回或增强生成
-
-### 2️⃣ Pattern Memory
-
-存储爆款结构模板：
-
--   标题模板
--   钩子句模板
--   结构模板
-
-来源：editor 修改清单自动提取
-
-存储形式：
-
-jsonl 或 sqlite
-
-------------------------------------------------------------------------
+- Topic Memory：
+  - `topic_hash -> 最终 Markdown + 要点`
+- Pattern Memory：
+  - 标题模板 / 钩子模板 / 结构模板
+  - 来源：editor 修改清单自动提取
+- 存储形式：`jsonl` 或 `sqlite`
 
 ## Phase 3 DoD
 
--   fallback 自动触发并可解释
--   同 topic 可命中缓存
--   输出更稳定（格式校验）
-
-------------------------------------------------------------------------
-
-# 最终架构结构
-
-agent_hot_note/ api/ service/ crew/ providers/ llm/ mock.py deepseek.py
-search/ mock.py tavily.py pipeline/ fallback.py postprocess.py memory/
-store.py
+- fallback 自动触发且可解释
+- 同 topic 可命中缓存
+- 输出稳定性更高（格式校验）
 
 ------------------------------------------------------------------------
 
 # 运行方式
 
+```bash
 uvicorn agent_hot_note.api.app:app --reload
+```
+
+------------------------------------------------------------------------
+
+# 附录 A：Phase 1 历史记录（已归档）
+
+> 以下内容为阶段 1 历史方案，不再作为当前执行基线。
+
+- 阶段 1 目标：搭建骨架、跑通接口、无需真实 API Key
+- 历史实现：
+  - MockLLM：固定输出，模拟三阶段
+  - MockSearch：固定 search results
+- 当前状态：
+  - 运行时 Mock 分支已移除
+  - 仅保留真实 Tavily + DeepSeek 链路
 
 ------------------------------------------------------------------------
 

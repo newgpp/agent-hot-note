@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from agent_hot_note.crew.sequential import SequentialCrew
 
@@ -10,15 +11,40 @@ class GenerateService:
         self.crew = crew or SequentialCrew()
 
     async def generate(self, topic: str) -> dict:
-        output = await self.crew.run(topic)
-        markdown = self._to_markdown(topic, output.research, output.draft, output.edited)
-        logger.info("generated markdown:\n%s", markdown)
+        try:
+            output = await self.crew.run(topic)
+            markdown = self._to_markdown(topic, output.research, output.draft, output.edited)
+            logger.info("generated markdown chars=%d topic=%s", len(markdown), topic)
+            logger.info("generated markdown full:\n%s", markdown)
+            query = output.search_results.get("query")
+            return {
+                "markdown": markdown,
+                "meta": {
+                    "stages": ["research", "write", "edit"],
+                    "query": query,
+                    "queries": [query] if query else [],
+                },
+            }
+        except Exception as exc:
+            logger.exception("generate.failed topic=%s", topic)
+            return {
+                "markdown": "",
+                "meta": {
+                    "stages": ["research", "write", "edit"],
+                    "error": self._error_payload(exc),
+                },
+            }
+
+    @staticmethod
+    def _error_payload(exc: Exception) -> dict[str, Any]:
+        message = str(exc)
+        hint = "请检查 OPENAI_API_KEY/OPENAI_BASE_URL/OPENAI_MODEL 以及网络连通性"
+        if "Connection error" not in message:
+            hint = "请查看服务日志中的 llm.error 详情"
         return {
-            "markdown": markdown,
-            "meta": {
-                "stages": ["research", "write", "edit"],
-                "query": output.search_results.get("query"),
-            },
+            "type": exc.__class__.__name__,
+            "message": message,
+            "hint": hint,
         }
 
     def _to_markdown(self, topic: str, research: str, draft: str, edited: str) -> str:

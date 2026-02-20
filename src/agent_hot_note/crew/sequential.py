@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agent_hot_note.config import Settings, get_settings
+from agent_hot_note.providers.llm.deepseek import DeepSeekProvider
+from agent_hot_note.providers.search.tavily import TavilySearch
+
 logger = logging.getLogger(__name__)
 
 
@@ -19,53 +23,58 @@ class CrewOutput:
 
 
 class SequentialCrew:
-    """Sequential crew powered by CrewAI with internal deterministic mock LLM."""
+    """Sequential crew with compact IO logging."""
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self.llm_provider = DeepSeekProvider(self.settings)
+        self.llm_provider.apply_env()
+        self.search_provider = TavilySearch(self.settings)
 
     async def run(self, topic: str) -> CrewOutput:
         logger.info("research")
-        research, draft, edited, search_results = await asyncio.to_thread(self._run_with_crewai, topic)
+        search_results = await self.search_provider.search(topic)
+        research, draft, edited = await asyncio.to_thread(self._run_with_crewai, topic, search_results)
         return CrewOutput(research=research, draft=draft, edited=edited, search_results=search_results)
 
-    def _run_with_crewai(self, topic: str) -> tuple[str, str, str, dict[str, Any]]:
-        os.environ.setdefault("OTEL_SDK_DISABLED", "true")
-        os.environ.setdefault("CREWAI_STORAGE_DIR", ".crewai")
+    def _run_with_crewai(self, topic: str, search_results: dict[str, Any]) -> tuple[str, str, str]:
+        os.environ.setdefault("OTEL_SDK_DISABLED", str(self.settings.otel_sdk_disabled).lower())
+        os.environ.setdefault("CREWAI_STORAGE_DIR", self.settings.crewai_storage_dir)
         Path(os.environ["CREWAI_STORAGE_DIR"]).mkdir(parents=True, exist_ok=True)
 
         from crewai import Agent, Crew, Process, Task
 
-        search_results = self._mock_search_results(topic)
-        search_context = "\n".join(
-            [f"- {item.get('title', '')}: {item.get('content', '')}" for item in search_results.get("results", [])]
-        )
+        search_context = self._build_search_context(search_results)
+        llm_model = self.settings.openai_model
         agent = Agent(
             role="Hot Note Strategist",
             goal="Generate practical and concise Chinese hot-note content",
             backstory="You are a content strategist focused on actionable short-form notes.",
-            llm="openai/gpt-4o-mini",
+            llm=llm_model,
             verbose=False,
             allow_delegation=False,
         )
 
         research_task = Task(
             description=(
-                "Analyze topic: {topic}. Based on search snippets below, provide concise research conclusions in Chinese.\n"
-                f"Search snippets:\n{search_context}"
+                "Analyze topic: {topic}. Give concise Chinese findings using the snippets.\n"
+                f"Snippets:\n{search_context}"
             ),
-            expected_output="A concise Chinese research summary with insights and key angles.",
+            expected_output="Concise Chinese summary with 3 key angles.",
             agent=agent,
         )
 
         logger.info("write")
         write_task = Task(
-            description="Write the main body in Chinese with clear sections, based on research.",
-            expected_output="A structured Chinese draft with sections and practical guidance.",
+            description="Write concise Chinese body with sections, based on research.",
+            expected_output="Chinese draft with clear sections and actionable steps.",
             agent=agent,
             context=[research_task],
         )
 
         logger.info("edit")
         edit_task = Task(
-            description="Polish the draft. Output 3 title ideas and 10 tags in Chinese.",
+            description="Polish draft and output 3 Chinese titles + 10 Chinese tags.",
             expected_output="Chinese edits including 3 titles and 10 tags.",
             agent=agent,
             context=[write_task],
@@ -77,7 +86,7 @@ class SequentialCrew:
             process=Process.sequential,
             verbose=False,
         )
-        with self._mock_litellm_completion():
+        with self._litellm_completion_context():
             result = crew.kickoff(inputs={"topic": topic})
         task_outputs = getattr(result, "tasks_output", None) or getattr(crew, "tasks_output", None)
         if not task_outputs or len(task_outputs) < 3:
@@ -86,7 +95,7 @@ class SequentialCrew:
         research = self._stringify_task_output(task_outputs[0])
         draft = self._stringify_task_output(task_outputs[1])
         edited = self._stringify_task_output(task_outputs[2])
-        return research, draft, edited, search_results
+        return research, draft, edited
 
     @staticmethod
     def _stringify_task_output(task_output: Any) -> str:
@@ -95,43 +104,46 @@ class SequentialCrew:
             return str(raw).strip()
         return str(task_output).strip()
 
-    @staticmethod
-    def _mock_search_results(topic: str) -> dict[str, Any]:
-        return {
-            "query": topic,
-            "results": [
-                {
-                    "title": f"{topic} 趋势观察",
-                    "url": "https://example.com/trend",
-                    "content": f"{topic} 在近期讨论中热度提升，用户关注点集中在实用方法与对比。",
-                },
-                {
-                    "title": f"{topic} 实操总结",
-                    "url": "https://example.com/practice",
-                    "content": f"关于 {topic} 的内容偏好是短结论 + 可直接复制的步骤。",
-                },
-            ],
-        }
-
-
     @contextmanager
-    def _mock_litellm_completion(self):
+    def _litellm_completion_context(self):
         import litellm
-        from litellm.types.utils import ModelResponse
 
         original_completion = litellm.completion
-        stage_counter = {"value": 0}
 
         def mocked_completion(**params: Any):
             messages = params.get("messages", [])
             prompt = self._extract_prompt(messages=messages)
-            topic = self._extract_topic(prompt)
-            stage = self._detect_stage(prompt, stage_counter)
-            content = self._build_stage_content(stage=stage, topic=topic)
-            return ModelResponse(
-                model=str(params.get("model", "openai/gpt-4o-mini")),
-                choices=[{"message": {"role": "assistant", "content": content}}],
+            model = str(params.get("model", self.settings.openai_model))
+            logger.info(
+                "llm.request model=%s chars=%d preview=%s",
+                model,
+                len(prompt),
+                self._clip(prompt, self.settings.log_preview_chars),
             )
+
+            params.setdefault("timeout", self.settings.llm_timeout_seconds)
+            params.setdefault("num_retries", self.settings.llm_num_retries)
+            params.setdefault("base_url", self.settings.openai_base_url)
+            if self.settings.openai_api_key:
+                params.setdefault("api_key", self.settings.openai_api_key)
+            try:
+                response = original_completion(**params)
+                output_text = self._extract_response_text(response)
+                logger.info(
+                    "llm.response model=%s chars=%d preview=%s",
+                    model,
+                    len(output_text),
+                    self._clip(output_text, self.settings.log_preview_chars),
+                )
+                return response
+            except Exception as exc:
+                logger.error(
+                    "llm.error model=%s type=%s detail=%s",
+                    model,
+                    exc.__class__.__name__,
+                    self._clip(self._extract_error_detail(exc), self.settings.log_preview_chars),
+                )
+                raise
 
         litellm.completion = mocked_completion
         try:
@@ -139,58 +151,42 @@ class SequentialCrew:
         finally:
             litellm.completion = original_completion
 
-    @staticmethod
-    def _build_stage_content(stage: str, topic: str) -> str:
-        if stage == "research":
-            answer = f"研究结论：主题「{topic}」可从痛点、方法、案例三段展开。共参考 2 条结果。"
-            return f"Thought: I now can give a great answer\n\nFinal Answer: {answer}"
-        if stage == "write":
-            answer = "\n".join(
-                [
-                    "## 亮点拆解",
-                    f"{topic} 的核心价值在于更快产出可执行结果，适合想要快速上手的人群。",
-                    "## 实操路径",
-                    "先定义目标，再用最小步骤验证，最后按反馈迭代。",
-                    "## 避坑建议",
-                    "不要一次塞太多信息，保持一条主线更容易获得高互动。",
-                ]
-            )
-            return f"Thought: I now can give a great answer\n\nFinal Answer: {answer}"
-        answer = "\n".join(
-            [
-                "标题1：3步搭建你的高效流程",
-                "标题2：从0到1跑通最小闭环",
-                "标题3：减少试错的实战清单",
-                "标签：效率,方法论,实操,复盘,热点,内容创作,增长,清单,教程,经验",
-            ]
-        )
-        return f"Thought: I now can give a great answer\n\nFinal Answer: {answer}"
+    def _build_search_context(self, search_results: dict[str, Any]) -> str:
+        snippets: list[str] = []
+        for item in search_results.get("results", [])[: self.settings.search_context_results]:
+            title = SequentialCrew._clip(str(item.get("title", "")).strip(), self.settings.search_title_chars)
+            content = SequentialCrew._clip(str(item.get("content", "")).strip(), self.settings.search_content_chars)
+            snippets.append(f"- {title}: {content}")
+        return "\n".join(snippets) or "- no snippets"
 
     @staticmethod
-    def _detect_stage(prompt: str, stage_counter: dict[str, int]) -> str:
-        lowered = prompt.lower()
-        if "polish" in lowered or "title ideas" in lowered or "10 tags" in lowered:
-            return "edit"
-        if "write the main body" in lowered or "structured chinese draft" in lowered:
-            return "write"
-        if "analyze topic" in lowered or "search snippets" in lowered:
-            return "research"
-        stages = ["research", "write", "edit"]
-        index = min(stage_counter["value"], len(stages) - 1)
-        stage_counter["value"] += 1
-        return stages[index]
+    def _extract_response_text(response: Any) -> str:
+        try:
+            choices = getattr(response, "choices", None) or response.get("choices", [])
+            if not choices:
+                return str(response)
+            message = choices[0].get("message", {})
+            return str(message.get("content", ""))
+        except Exception:
+            return str(response)
 
     @staticmethod
-    def _extract_topic(prompt: str) -> str:
-        patterns = [
-            r"topic[:：]\s*([^\n]+)",
-            r"主题[「\"]?([^」\"\n]+)",
-        ]
-        for pattern in patterns:
-            matched = re.search(pattern, prompt, flags=re.IGNORECASE)
-            if matched:
-                return matched.group(1).strip()
-        return "未知主题"
+    def _clip(text: str, limit: int) -> str:
+        normalized = re.sub(r"\s+", " ", text).strip()
+        if len(normalized) <= limit:
+            return normalized
+        return f"{normalized[:limit]}...(truncated)"
+
+    @staticmethod
+    def _extract_error_detail(exc: Exception) -> str:
+        status_code = getattr(exc, "status_code", None)
+        message = getattr(exc, "message", None) or str(exc)
+        body = getattr(exc, "body", None)
+        details = [f"status_code={status_code}" if status_code is not None else ""]
+        if body is not None:
+            details.append(f"body={body}")
+        details.append(f"message={message}")
+        return " ".join([part for part in details if part]).strip()
 
     @staticmethod
     def _extract_prompt(*args: Any, **kwargs: Any) -> str:
