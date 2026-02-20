@@ -2,6 +2,8 @@ import logging
 import json
 from typing import Any
 
+import httpx
+
 from agent_hot_note.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -15,6 +17,7 @@ class TavilySearch:
         self.settings = settings
         self.search_depth = settings.tavily_search_depth
         self.max_results = settings.tavily_max_results
+        self.base_url = "https://api.tavily.com/search"
 
     async def search(self, topic: str) -> dict[str, Any]:
         request_payload = {
@@ -33,13 +36,16 @@ class TavilySearch:
             self._clip(self._to_json(request_payload), PAYLOAD_LOG_LIMIT),
         )
 
-        try:
-            from tavily import TavilyClient
-        except ImportError as exc:
-            raise RuntimeError("tavily-python is required") from exc
-
-        client = TavilyClient(api_key=self.settings.tavily_api_key or None)
-        response = client.search(query=topic, search_depth=self.search_depth, max_results=self.max_results)
+        request_body = {
+            "api_key": self.settings.tavily_api_key,
+            "query": topic,
+            "search_depth": self.search_depth,
+            "max_results": self.max_results,
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            http_response = await client.post(self.base_url, json=request_body)
+            http_response.raise_for_status()
+            response = http_response.json()
         results = response.get("results", [])
         logger.info(
             "tavily.response results=%d top_titles=%s",

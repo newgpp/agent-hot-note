@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 from contextlib import contextmanager
@@ -35,10 +34,10 @@ class SequentialCrew:
     async def run(self, topic: str) -> CrewOutput:
         logger.info("research")
         search_results = await self.search_provider.search(topic)
-        research, draft, edited = await asyncio.to_thread(self._run_with_crewai, topic, search_results)
+        research, draft, edited = await self._run_with_crewai_async(topic, search_results)
         return CrewOutput(research=research, draft=draft, edited=edited, search_results=search_results)
 
-    def _run_with_crewai(self, topic: str, search_results: dict[str, Any]) -> tuple[str, str, str]:
+    async def _run_with_crewai_async(self, topic: str, search_results: dict[str, Any]) -> tuple[str, str, str]:
         os.environ.setdefault("OTEL_SDK_DISABLED", str(self.settings.otel_sdk_disabled).lower())
         os.environ.setdefault("CREWAI_STORAGE_DIR", self.settings.crewai_storage_dir)
         Path(self.settings.crewai_storage_dir).mkdir(parents=True, exist_ok=True)
@@ -95,7 +94,7 @@ class SequentialCrew:
         )
         try:
             with self._litellm_logging_context():
-                result = crew.kickoff(inputs={"topic": topic})
+                result = await crew.kickoff_async(inputs={"topic": topic})
         except Exception as exc:
             logger.error(
                 "llm.error model=%s type=%s detail=%s",
