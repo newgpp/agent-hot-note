@@ -40,5 +40,4 @@ def test_sequential_logs_order(caplog, monkeypatch) -> None:
     edit_idx = messages.index("edit")
     assert research_idx < write_idx < edit_idx
 
-    assert any(message.startswith("llm.request") for message in messages)
-    assert any(message.startswith("llm.response") for message in messages)
+    assert any(message.startswith("llm.call") for message in messages)

@@ -20,7 +20,6 @@ class Settings(BaseSettings):
     otel_sdk_disabled: bool = Field(default=True, alias="OTEL_SDK_DISABLED")
     crewai_storage_dir: str = Field(default=".crewai", alias="CREWAI_STORAGE_DIR")
 
-    log_preview_chars: int = Field(default=180, alias="LOG_PREVIEW_CHARS")
     search_context_results: int = Field(default=3, alias="SEARCH_CONTEXT_RESULTS")
     search_title_chars: int = Field(default=40, alias="SEARCH_TITLE_CHARS")
     search_content_chars: int = Field(default=120, alias="SEARCH_CONTENT_CHARS")

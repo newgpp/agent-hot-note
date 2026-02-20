@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import os
-import re
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +11,7 @@ from agent_hot_note.providers.llm.deepseek import DeepSeekProvider
 from agent_hot_note.providers.search.tavily import TavilySearch
 
 logger = logging.getLogger(__name__)
+ERROR_LOG_LIMIT = 1000
 
 
 @dataclass
@@ -30,6 +30,7 @@ class SequentialCrew:
         self.llm_provider = DeepSeekProvider(self.settings)
         self.llm_provider.apply_env()
         self.search_provider = TavilySearch(self.settings)
+        self.llm_model = self._normalize_model(self.settings.openai_model)
 
     async def run(self, topic: str) -> CrewOutput:
         logger.info("research")
@@ -40,12 +41,12 @@ class SequentialCrew:
     def _run_with_crewai(self, topic: str, search_results: dict[str, Any]) -> tuple[str, str, str]:
         os.environ.setdefault("OTEL_SDK_DISABLED", str(self.settings.otel_sdk_disabled).lower())
         os.environ.setdefault("CREWAI_STORAGE_DIR", self.settings.crewai_storage_dir)
-        Path(os.environ["CREWAI_STORAGE_DIR"]).mkdir(parents=True, exist_ok=True)
+        Path(self.settings.crewai_storage_dir).mkdir(parents=True, exist_ok=True)
 
         from crewai import Agent, Crew, Process, Task
 
         search_context = self._build_search_context(search_results)
-        llm_model = self.settings.openai_model
+        llm_model = self.llm_model
         agent = Agent(
             role="Hot Note Strategist",
             goal="Generate practical and concise Chinese hot-note content",
@@ -86,8 +87,23 @@ class SequentialCrew:
             process=Process.sequential,
             verbose=False,
         )
-        with self._litellm_completion_context():
-            result = crew.kickoff(inputs={"topic": topic})
+        logger.info(
+            "llm.call model=%s timeout=%.1fs retries=%d",
+            self.llm_model,
+            self.settings.llm_timeout_seconds,
+            self.settings.llm_num_retries,
+        )
+        try:
+            with self._litellm_logging_context():
+                result = crew.kickoff(inputs={"topic": topic})
+        except Exception as exc:
+            logger.error(
+                "llm.error model=%s type=%s detail=%s",
+                self.llm_model,
+                exc.__class__.__name__,
+                self._extract_error_detail(exc),
+            )
+            raise
         task_outputs = getattr(result, "tasks_output", None) or getattr(crew, "tasks_output", None)
         if not task_outputs or len(task_outputs) < 3:
             raise RuntimeError("CrewAI did not return all stage outputs")
@@ -104,53 +120,6 @@ class SequentialCrew:
             return str(raw).strip()
         return str(task_output).strip()
 
-    @contextmanager
-    def _litellm_completion_context(self):
-        import litellm
-
-        original_completion = litellm.completion
-
-        def mocked_completion(**params: Any):
-            messages = params.get("messages", [])
-            prompt = self._extract_prompt(messages=messages)
-            model = str(params.get("model", self.settings.openai_model))
-            logger.info(
-                "llm.request model=%s chars=%d preview=%s",
-                model,
-                len(prompt),
-                self._clip(prompt, self.settings.log_preview_chars),
-            )
-
-            params.setdefault("timeout", self.settings.llm_timeout_seconds)
-            params.setdefault("num_retries", self.settings.llm_num_retries)
-            params.setdefault("base_url", self.settings.openai_base_url)
-            if self.settings.openai_api_key:
-                params.setdefault("api_key", self.settings.openai_api_key)
-            try:
-                response = original_completion(**params)
-                output_text = self._extract_response_text(response)
-                logger.info(
-                    "llm.response model=%s chars=%d preview=%s",
-                    model,
-                    len(output_text),
-                    self._clip(output_text, self.settings.log_preview_chars),
-                )
-                return response
-            except Exception as exc:
-                logger.error(
-                    "llm.error model=%s type=%s detail=%s",
-                    model,
-                    exc.__class__.__name__,
-                    self._clip(self._extract_error_detail(exc), self.settings.log_preview_chars),
-                )
-                raise
-
-        litellm.completion = mocked_completion
-        try:
-            yield
-        finally:
-            litellm.completion = original_completion
-
     def _build_search_context(self, search_results: dict[str, Any]) -> str:
         snippets: list[str] = []
         for item in search_results.get("results", [])[: self.settings.search_context_results]:
@@ -158,6 +127,54 @@ class SequentialCrew:
             content = SequentialCrew._clip(str(item.get("content", "")).strip(), self.settings.search_content_chars)
             snippets.append(f"- {title}: {content}")
         return "\n".join(snippets) or "- no snippets"
+
+    @contextmanager
+    def _litellm_logging_context(self):
+        import litellm
+
+        original_completion = litellm.completion
+
+        def wrapped_completion(**params: Any):
+            params.setdefault("timeout", self.settings.llm_timeout_seconds)
+            params.setdefault("num_retries", self.settings.llm_num_retries)
+            params.setdefault("base_url", self.settings.openai_base_url)
+            if self.settings.openai_api_key:
+                params.setdefault("api_key", self.settings.openai_api_key)
+            params["model"] = self._normalize_model(str(params.get("model", self.llm_model)))
+
+            model = str(params.get("model", self.llm_model))
+            request_text = self._extract_prompt(params.get("messages", []))
+            logger.info("llm.request.full model=%s\n%s", model, request_text)
+
+            response = original_completion(**params)
+            response_text = self._extract_response_text(response)
+            logger.info("llm.response.full model=%s\n%s", model, response_text)
+            return response
+
+        litellm.completion = wrapped_completion
+        try:
+            yield
+        finally:
+            litellm.completion = original_completion
+
+    @staticmethod
+    def _clip(text: str, limit: int) -> str:
+        normalized = " ".join(text.split()).strip()
+        if len(normalized) <= limit:
+            return normalized
+        return f"{normalized[:limit]}...(truncated)"
+
+    @staticmethod
+    def _extract_prompt(messages: Any) -> str:
+        if not isinstance(messages, list):
+            return str(messages)
+        parts: list[str] = []
+        for message in messages:
+            if isinstance(message, dict):
+                parts.append(str(message.get("content", "")))
+            else:
+                parts.append(str(message))
+        return "\n".join(parts).strip()
 
     @staticmethod
     def _extract_response_text(response: Any) -> str:
@@ -170,15 +187,7 @@ class SequentialCrew:
         except Exception:
             return str(response)
 
-    @staticmethod
-    def _clip(text: str, limit: int) -> str:
-        normalized = re.sub(r"\s+", " ", text).strip()
-        if len(normalized) <= limit:
-            return normalized
-        return f"{normalized[:limit]}...(truncated)"
-
-    @staticmethod
-    def _extract_error_detail(exc: Exception) -> str:
+    def _extract_error_detail(self, exc: Exception) -> str:
         status_code = getattr(exc, "status_code", None)
         message = getattr(exc, "message", None) or str(exc)
         body = getattr(exc, "body", None)
@@ -186,27 +195,11 @@ class SequentialCrew:
         if body is not None:
             details.append(f"body={body}")
         details.append(f"message={message}")
-        return " ".join([part for part in details if part]).strip()
+        return self._clip(" ".join([part for part in details if part]).strip(), ERROR_LOG_LIMIT)
 
     @staticmethod
-    def _extract_prompt(*args: Any, **kwargs: Any) -> str:
-        if "messages" in kwargs and isinstance(kwargs["messages"], list):
-            return SequentialCrew._flatten_messages(kwargs["messages"])
-        if args:
-            first = args[0]
-            if isinstance(first, str):
-                return first
-            if isinstance(first, list):
-                return SequentialCrew._flatten_messages(first)
-        return str(kwargs)
-
-    @staticmethod
-    def _flatten_messages(messages: list[Any]) -> str:
-        parts: list[str] = []
-        for message in messages:
-            if isinstance(message, dict):
-                content = message.get("content", "")
-                parts.append(str(content))
-            else:
-                parts.append(str(message))
-        return "\n".join(parts)
+    def _normalize_model(model: str) -> str:
+        stripped = model.strip()
+        if "/" in stripped:
+            return stripped
+        return f"openai/{stripped}"

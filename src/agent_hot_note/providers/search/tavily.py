@@ -5,6 +5,7 @@ from typing import Any
 from agent_hot_note.config import Settings
 
 logger = logging.getLogger(__name__)
+PAYLOAD_LOG_LIMIT = 4000
 
 
 class TavilySearch:
@@ -29,7 +30,7 @@ class TavilySearch:
         )
         logger.info(
             "tavily.request.payload=%s",
-            self._clip(self._to_json(request_payload), self.settings.log_preview_chars),
+            self._clip(self._to_json(request_payload), PAYLOAD_LOG_LIMIT),
         )
 
         try:
@@ -50,7 +51,7 @@ class TavilySearch:
         )
         logger.info(
             "tavily.response.payload=%s",
-            self._clip(self._to_json(response), self.settings.log_preview_chars),
+            self._clip(self._to_json(response), PAYLOAD_LOG_LIMIT),
         )
         return {"query": topic, "results": results}
 
