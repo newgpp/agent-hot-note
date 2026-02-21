@@ -22,7 +22,12 @@ class CrewOutput:
 
 
 class SequentialCrew:
-    """Sequential crew with compact IO logging."""
+    """Sequential crew with compact IO logging.
+
+    Pattern note:
+    - Follows Anthropic's "Workflow / Prompt Chaining" pattern:
+      fixed stages (research -> write -> edit), each stage consuming prior output.
+    """
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
