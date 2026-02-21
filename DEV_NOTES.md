@@ -108,12 +108,25 @@ sequenceDiagram
 
 - 目标：提升搜索质量与稳定性
 - 计划：
-  1. `site:xiaohongshu.com {topic}`
-  2. 结果不足时多域名 fallback（zhihu / bilibili / 通用 query）
+  1. Tavily 域名定向检索（优先 `include_domains`，替代纯 `site:` query）
+  2. 第一优先域名池（如 xiaohongshu）结果不足时，切换第二域名池（zhihu / bilibili）
+  3. 仍不足时回退到通用 query（不带域名限制）
 - 规则：
   - 结果数量 < 2 -> fallback
   - 摘要过短 -> fallback
   - 标题重复率高 -> fallback
+  - 输出 `meta.fallback_queries` 与 `meta.fallback_domains`
+
+## 3.1.1 单 URL 抓取增强（新增）
+
+- 场景：已命中高价值 URL，需要更完整正文供写作阶段使用
+- 计划：
+  - 对候选 URL 做白名单筛选
+  - 使用 Tavily Extract 获取正文
+  - 失败时回退到 search snippets，不阻塞主流程
+- 输出：
+  - `meta.extracted_urls`
+  - `meta.extract_failed_urls`
 
 ## 3.2 记忆机制（轻量版）
 
@@ -127,8 +140,32 @@ sequenceDiagram
 ## Phase 3 DoD
 
 - fallback 自动触发且可解释
+- 域名级 fallback 可观测（queries + domains）
+- 单 URL 提取可选启用且失败可降级
 - 同 topic 可命中缓存
 - 输出稳定性更高（格式校验）
+
+## Phase 3 PR 拆分计划
+
+- PR-1：Fallback 基础骨架
+  - 新增 `pipeline/fallback.py`
+  - 定义 fallback 输出结构（queries/domains/reason/triggered）
+  - 补单测（不接主流程）
+- PR-2：域名池策略 + 质量判定
+  - 实现 `include_domains` 分层检索（primary -> secondary -> generic）
+  - 实现触发规则（结果数/摘要长度/标题重复率）
+  - 阈值配置化
+- PR-3：主链路接入 + Meta 输出
+  - `SequentialCrew` 接入 fallback
+  - `GenerateService` 输出 `meta.fallback_queries` / `meta.fallback_domains`
+  - 保持 research/write/edit 任务结构不变
+- PR-4：URL Extract 增强 + 降级
+  - 新增 Tavily Extract 方法
+  - 白名单 URL 抽取正文
+  - 失败回退到 snippets，补 `meta.extracted_urls` / `meta.extract_failed_urls`
+- PR-5：可观测性与文档收尾
+  - 增加 fallback/extract 关键日志
+  - 更新 README 与 DEV_NOTES 验收项
 
 ------------------------------------------------------------------------
 
