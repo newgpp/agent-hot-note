@@ -10,6 +10,7 @@
 ## ✅ 验收结论
 
 - 阶段 2 已验收通过
+- 阶段 3 已验收通过（PR-1 ~ PR-5）
 - 当前主链路为真实能力：`Tavily -> CrewAI(research/write/edit) -> DeepSeek`
 - 运行时已移除 Mock 逻辑与配置开关（无 `USE_MOCK`）
 
@@ -163,7 +164,7 @@ sequenceDiagram
   - 新增 Tavily Extract 方法
   - 白名单 URL 抽取正文
   - 失败回退到 snippets，补 `meta.extracted_urls` / `meta.extract_failed_urls`
-- PR-5：可观测性与文档收尾
+- PR-5：可观测性与文档收尾（已完成）
   - 增加 fallback/extract 关键日志
   - 更新 README 与 DEV_NOTES 验收项
 

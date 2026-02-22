@@ -18,6 +18,14 @@ class GenerateService:
             logger.info("generated markdown full:\n%s", markdown)
             query = output.search_results.get("query")
             fallback_meta = output.fallback_decision.as_meta()
+            logger.info(
+                "generate.meta topic=%s fallback_triggered=%s fallback_reason=%s extracted=%d extract_failed=%d",
+                topic,
+                fallback_meta["fallback_triggered"],
+                fallback_meta["fallback_reason"],
+                len(output.search_results.get("extracted_urls", [])),
+                len(output.search_results.get("extract_failed_urls", [])),
+            )
             return {
                 "markdown": markdown,
                 "meta": {

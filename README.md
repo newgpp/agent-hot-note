@@ -1,6 +1,6 @@
 # agent-hot-note
 
-热点笔记生成服务（Phase 2，真实 DeepSeek + Tavily，异步实现）。
+热点笔记生成服务（Phase 3，真实 DeepSeek + Tavily + Fallback + Extract，异步实现）。
 
 ## 1. 环境要求
 
@@ -50,6 +50,14 @@ cp .env.example .env
 - `OPENAI_BASE_URL=https://api.deepseek.com`
 - `OPENAI_MODEL=deepseek-chat`
 - `TAVILY_API_KEY`
+- `FALLBACK_MIN_RESULTS`
+- `FALLBACK_MIN_AVG_SUMMARY_CHARS`
+- `FALLBACK_MAX_TITLE_DUP_RATIO`
+- `FALLBACK_PRIMARY_DOMAINS`
+- `FALLBACK_SECONDARY_DOMAINS`
+- `TAVILY_EXTRACT_ENABLED`
+- `TAVILY_EXTRACT_MAX_URLS`
+- `TAVILY_EXTRACT_ALLOWED_DOMAINS`
 
 服务启动后：
 
@@ -72,10 +80,23 @@ curl -X POST "http://127.0.0.1:8000/generate" \
   "meta": {
     "stages": ["research", "write", "edit"],
     "query": "AI 笔记",
-    "queries": ["AI 笔记"]
+    "queries": ["AI 笔记", "AI 笔记", "AI 笔记"],
+    "fallback_triggered": true,
+    "fallback_reason": "summary_too_short",
+    "fallback_queries": ["AI 笔记", "AI 笔记", "AI 笔记"],
+    "fallback_domains": [["xiaohongshu.com"], ["zhihu.com", "bilibili.com"], []],
+    "extracted_urls": ["https://xiaohongshu.com/p/xxx"],
+    "extract_failed_urls": []
   }
 }
 ```
+
+## 4.1 关键日志
+
+- `fallback.evaluate` / `fallback.attempt` / `fallback.resolved`
+- `extract.candidates` / `extract.applied` / `extract.failed`
+- `tavily.extract.request` / `tavily.extract.response`
+- `llm.request.full` / `llm.response.full` / `llm.error`
 
 ## 5. 运行测试
 

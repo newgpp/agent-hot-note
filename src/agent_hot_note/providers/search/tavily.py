@@ -94,6 +94,9 @@ class TavilySearch:
                 contents[url] = raw
             elif url:
                 failed_urls.append(url)
+        unresolved = [url for url in urls if url not in contents and url not in failed_urls]
+        if unresolved:
+            failed_urls.extend(unresolved)
         logger.info(
             "tavily.extract.response success=%d failed=%d",
             len(contents),

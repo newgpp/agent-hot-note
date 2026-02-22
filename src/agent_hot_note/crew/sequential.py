@@ -61,11 +61,18 @@ class SequentialCrew:
 
     async def _search_with_fallback(self, topic: str) -> tuple[dict[str, Any], FallbackDecision]:
         primary_result = await self.search_provider.search(topic, include_domains=self.primary_domains or None)
+        primary_count = len(primary_result.get("results", []))
         primary_decision = self.fallback_planner.plan(
             topic=topic,
             results=primary_result.get("results", []),
             primary_domains=self.primary_domains,
             secondary_domains=self.secondary_domains,
+        )
+        logger.info(
+            "fallback.evaluate step=primary results=%d reason=%s domains=%s",
+            primary_count,
+            primary_decision.reason,
+            self.primary_domains,
         )
         if not primary_decision.triggered:
             logger.info("fallback.not_triggered reason=%s", primary_decision.reason)
@@ -84,6 +91,7 @@ class SequentialCrew:
 
         merged_results = self._merge_results(result_batches, max_items=self.settings.tavily_max_results)
         for domains in followup_domain_steps:
+            logger.info("fallback.attempt domains=%s", domains)
             followup_result = await self.search_provider.search(topic, include_domains=domains or None)
             attempted_queries.append(topic)
             attempted_domains.append(domains)
@@ -94,6 +102,12 @@ class SequentialCrew:
                 results=merged_results,
                 primary_domains=self.primary_domains,
                 secondary_domains=self.secondary_domains,
+            )
+            logger.info(
+                "fallback.evaluate step=followup merged_results=%d reason=%s domains=%s",
+                len(merged_results),
+                merged_decision.reason,
+                domains,
             )
             if not merged_decision.triggered:
                 logger.info("fallback.resolved step_domains=%s", domains)
@@ -112,12 +126,20 @@ class SequentialCrew:
     async def _enrich_results_with_extract(self, search_results: dict[str, Any]) -> dict[str, Any]:
         results = list(search_results.get("results", []))
         if not self.settings.tavily_extract_enabled:
+            logger.info("extract.skipped reason=disabled")
             search_results["extracted_urls"] = []
             search_results["extract_failed_urls"] = []
             return search_results
 
         candidate_urls = self._select_extract_urls(results)
+        logger.info(
+            "extract.candidates total_results=%d candidate_urls=%d allowed_domains=%s",
+            len(results),
+            len(candidate_urls),
+            self.extract_allowed_domains,
+        )
         if not candidate_urls:
+            logger.info("extract.skipped reason=no_candidates")
             search_results["extracted_urls"] = []
             search_results["extract_failed_urls"] = []
             return search_results
@@ -129,6 +151,11 @@ class SequentialCrew:
             search_results["results"] = self._apply_extracted_content(results, contents)
             search_results["extracted_urls"] = list(contents.keys())
             search_results["extract_failed_urls"] = failed_urls
+            logger.info(
+                "extract.applied success=%d failed=%d",
+                len(search_results["extracted_urls"]),
+                len(failed_urls),
+            )
             return search_results
         except Exception as exc:
             logger.warning("extract.failed type=%s detail=%s", exc.__class__.__name__, str(exc))
