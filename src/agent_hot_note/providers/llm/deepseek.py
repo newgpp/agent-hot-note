@@ -4,7 +4,7 @@ from agent_hot_note.config import Settings
 
 
 class DeepSeekProvider:
-    """Read DeepSeek-compatible OpenAI env config for CrewAI/litellm."""
+    """Read DeepSeek-compatible OpenAI env config for LLM clients."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings

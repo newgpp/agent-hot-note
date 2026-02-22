@@ -1,6 +1,6 @@
 # agent-hot-note
 
-热点笔记生成服务（Phase 3，真实 DeepSeek + Tavily + Fallback + Extract，异步实现）。
+热点笔记生成服务（Phase 3，LangGraph + 真实 DeepSeek + Tavily + Fallback + Extract，异步实现）。
 
 ## 1. 环境要求
 

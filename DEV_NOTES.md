@@ -11,7 +11,7 @@
 
 - 阶段 2 已验收通过
 - 阶段 3 已验收通过（PR-1 ~ PR-5）
-- 当前主链路为真实能力：`Tavily -> CrewAI(research/write/edit) -> DeepSeek`
+- 当前主链路为真实能力：`Tavily -> LangGraph(research/write/edit) -> DeepSeek`
 - 运行时已移除 Mock 逻辑与配置开关（无 `USE_MOCK`）
 
 ## ✅ 当前能力

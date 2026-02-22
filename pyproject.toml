@@ -12,7 +12,8 @@ dependencies = [
   "uvicorn==0.34.0",
   "pydantic==2.10.6",
   "pydantic-settings==2.7.1",
-  "crewai==0.100.0",
+  "langgraph==0.2.67",
+  "langchain-openai==0.3.3",
   "tavily-python==0.7.12",
 ]
 

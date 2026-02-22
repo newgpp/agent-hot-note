@@ -15,14 +15,14 @@ def test_sequential_logs_order(caplog, monkeypatch) -> None:
             ],
         }
 
-    async def fake_run_with_crewai(self, topic: str, search_results: dict) -> tuple[str, str, str]:
+    async def fake_run_with_langgraph(self, topic: str, search_results: dict) -> tuple[str, str, str]:
         logger = logging.getLogger("agent_hot_note.crew.sequential")
         logger.info("write")
         logger.info("edit")
         return "r", "d", "e"
 
     monkeypatch.setattr(TavilySearch, "search", fake_search)
-    monkeypatch.setattr(SequentialCrew, "_run_with_crewai_async", fake_run_with_crewai)
+    monkeypatch.setattr(SequentialCrew, "_run_with_langgraph_async", fake_run_with_langgraph)
     crew = SequentialCrew()
 
     with caplog.at_level(logging.INFO):
