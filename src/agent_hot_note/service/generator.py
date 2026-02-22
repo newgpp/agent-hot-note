@@ -17,12 +17,14 @@ class GenerateService:
             logger.info("generated markdown chars=%d topic=%s", len(markdown), topic)
             logger.info("generated markdown full:\n%s", markdown)
             query = output.search_results.get("query")
+            fallback_meta = output.fallback_decision.as_meta()
             return {
                 "markdown": markdown,
                 "meta": {
                     "stages": ["research", "write", "edit"],
                     "query": query,
-                    "queries": [query] if query else [],
+                    "queries": fallback_meta["fallback_queries"] if query else [],
+                    **fallback_meta,
                 },
             }
         except Exception as exc:

@@ -19,17 +19,20 @@ class TavilySearch:
         self.max_results = settings.tavily_max_results
         self.base_url = "https://api.tavily.com/search"
 
-    async def search(self, topic: str) -> dict[str, Any]:
+    async def search(self, topic: str, include_domains: list[str] | None = None) -> dict[str, Any]:
         request_payload = {
             "query": topic,
             "search_depth": self.search_depth,
             "max_results": self.max_results,
         }
+        if include_domains:
+            request_payload["include_domains"] = include_domains
         logger.info(
-            "tavily.request query=%s depth=%s max_results=%d",
+            "tavily.request query=%s depth=%s max_results=%d include_domains=%s",
             self._clip(topic, 80),
             self.search_depth,
             self.max_results,
+            include_domains or [],
         )
         logger.info(
             "tavily.request.payload=%s",
@@ -42,6 +45,8 @@ class TavilySearch:
             "search_depth": self.search_depth,
             "max_results": self.max_results,
         }
+        if include_domains:
+            request_body["include_domains"] = include_domains
         async with httpx.AsyncClient(timeout=30.0) as client:
             http_response = await client.post(self.base_url, json=request_body)
             http_response.raise_for_status()

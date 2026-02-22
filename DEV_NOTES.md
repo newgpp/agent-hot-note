@@ -155,7 +155,7 @@ sequenceDiagram
   - 实现 `include_domains` 分层检索（primary -> secondary -> generic）
   - 实现触发规则（结果数/摘要长度/标题重复率）
   - 阈值配置化
-- PR-3：主链路接入 + Meta 输出
+- PR-3：主链路接入 + Meta 输出（已完成）
   - `SequentialCrew` 接入 fallback
   - `GenerateService` 输出 `meta.fallback_queries` / `meta.fallback_domains`
   - 保持 research/write/edit 任务结构不变

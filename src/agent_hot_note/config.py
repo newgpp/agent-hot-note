@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     search_title_chars: int = Field(default=40, alias="SEARCH_TITLE_CHARS")
     search_content_chars: int = Field(default=120, alias="SEARCH_CONTENT_CHARS")
     tavily_title_chars: int = Field(default=30, alias="TAVILY_TITLE_CHARS")
+    fallback_min_results: int = Field(default=2, alias="FALLBACK_MIN_RESULTS")
+    fallback_min_avg_summary_chars: int = Field(default=30, alias="FALLBACK_MIN_AVG_SUMMARY_CHARS")
+    fallback_max_title_dup_ratio: float = Field(default=0.5, alias="FALLBACK_MAX_TITLE_DUP_RATIO")
+    fallback_primary_domains: str = Field(default="xiaohongshu.com", alias="FALLBACK_PRIMARY_DOMAINS")
+    fallback_secondary_domains: str = Field(default="zhihu.com,bilibili.com", alias="FALLBACK_SECONDARY_DOMAINS")
 
 
 @lru_cache(maxsize=1)

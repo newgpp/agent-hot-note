@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_hot_note.config import Settings, get_settings
+from agent_hot_note.pipeline.fallback import FallbackDecision, FallbackPlanner
 from agent_hot_note.providers.llm.deepseek import DeepSeekProvider
 from agent_hot_note.providers.search.tavily import TavilySearch
 
@@ -19,6 +20,7 @@ class CrewOutput:
     draft: str
     edited: str
     search_results: dict[str, Any]
+    fallback_decision: FallbackDecision
 
 
 class SequentialCrew:
@@ -35,12 +37,73 @@ class SequentialCrew:
         self.llm_provider.apply_env()
         self.search_provider = TavilySearch(self.settings)
         self.llm_model = self._normalize_model(self.settings.openai_model)
+        self.primary_domains = self._parse_domains(self.settings.fallback_primary_domains)
+        self.secondary_domains = self._parse_domains(self.settings.fallback_secondary_domains)
+        self.fallback_planner = FallbackPlanner(
+            min_results=self.settings.fallback_min_results,
+            min_avg_summary_chars=self.settings.fallback_min_avg_summary_chars,
+            max_title_dup_ratio=self.settings.fallback_max_title_dup_ratio,
+        )
 
     async def run(self, topic: str) -> CrewOutput:
         logger.info("research")
-        search_results = await self.search_provider.search(topic)
+        search_results, fallback_decision = await self._search_with_fallback(topic)
         research, draft, edited = await self._run_with_crewai_async(topic, search_results)
-        return CrewOutput(research=research, draft=draft, edited=edited, search_results=search_results)
+        return CrewOutput(
+            research=research,
+            draft=draft,
+            edited=edited,
+            search_results=search_results,
+            fallback_decision=fallback_decision,
+        )
+
+    async def _search_with_fallback(self, topic: str) -> tuple[dict[str, Any], FallbackDecision]:
+        primary_result = await self.search_provider.search(topic, include_domains=self.primary_domains or None)
+        primary_decision = self.fallback_planner.plan(
+            topic=topic,
+            results=primary_result.get("results", []),
+            primary_domains=self.primary_domains,
+            secondary_domains=self.secondary_domains,
+        )
+        if not primary_decision.triggered:
+            logger.info("fallback.not_triggered reason=%s", primary_decision.reason)
+            return primary_result, primary_decision
+
+        logger.info("fallback.triggered reason=%s", primary_decision.reason)
+        attempted_queries: list[str] = [topic]
+        attempted_domains: list[list[str]] = [self.primary_domains]
+        result_batches: list[list[dict[str, Any]]] = [primary_result.get("results", [])]
+
+        followup_domain_steps: list[list[str]] = []
+        if self.secondary_domains:
+            followup_domain_steps.append(self.secondary_domains)
+        followup_domain_steps.append([])
+
+        merged_results = self._merge_results(result_batches, max_items=self.settings.tavily_max_results)
+        for domains in followup_domain_steps:
+            followup_result = await self.search_provider.search(topic, include_domains=domains or None)
+            attempted_queries.append(topic)
+            attempted_domains.append(domains)
+            result_batches.append(followup_result.get("results", []))
+            merged_results = self._merge_results(result_batches, max_items=self.settings.tavily_max_results)
+            merged_decision = self.fallback_planner.plan(
+                topic=topic,
+                results=merged_results,
+                primary_domains=self.primary_domains,
+                secondary_domains=self.secondary_domains,
+            )
+            if not merged_decision.triggered:
+                logger.info("fallback.resolved step_domains=%s", domains)
+                break
+
+        merged_result = {"query": topic, "results": merged_results}
+        final_decision = FallbackDecision(
+            triggered=True,
+            reason=primary_decision.reason,
+            queries=attempted_queries,
+            domains=attempted_domains,
+        )
+        return merged_result, final_decision
 
     async def _run_with_crewai_async(self, topic: str, search_results: dict[str, Any]) -> tuple[str, str, str]:
         os.environ.setdefault("OTEL_SDK_DISABLED", str(self.settings.otel_sdk_disabled).lower())
@@ -207,3 +270,22 @@ class SequentialCrew:
         if "/" in stripped:
             return stripped
         return f"openai/{stripped}"
+
+    @staticmethod
+    def _parse_domains(raw: str) -> list[str]:
+        return [item.strip() for item in raw.split(",") if item.strip()]
+
+    @staticmethod
+    def _merge_results(result_batches: list[list[dict[str, Any]]], max_items: int) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        merged: list[dict[str, Any]] = []
+        for batch in result_batches:
+            for item in batch:
+                key = str(item.get("url") or item.get("title") or "")
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                merged.append(item)
+                if len(merged) >= max_items:
+                    return merged
+        return merged
