@@ -17,7 +17,8 @@ class TavilySearch:
         self.settings = settings
         self.search_depth = settings.tavily_search_depth
         self.max_results = settings.tavily_max_results
-        self.base_url = "https://api.tavily.com/search"
+        self.search_url = "https://api.tavily.com/search"
+        self.extract_url = "https://api.tavily.com/extract"
 
     async def search(self, topic: str, include_domains: list[str] | None = None) -> dict[str, Any]:
         request_payload = {
@@ -48,7 +49,7 @@ class TavilySearch:
         if include_domains:
             request_body["include_domains"] = include_domains
         async with httpx.AsyncClient(timeout=30.0) as client:
-            http_response = await client.post(self.base_url, json=request_body)
+            http_response = await client.post(self.search_url, json=request_body)
             http_response.raise_for_status()
             response = http_response.json()
         results = response.get("results", [])
@@ -65,6 +66,44 @@ class TavilySearch:
             self._clip(self._to_json(response), PAYLOAD_LOG_LIMIT),
         )
         return {"query": topic, "results": results}
+
+    async def extract(self, urls: list[str]) -> dict[str, Any]:
+        request_payload = {"urls": urls}
+        logger.info("tavily.extract.request count=%d", len(urls))
+        logger.info(
+            "tavily.extract.request.payload=%s",
+            self._clip(self._to_json(request_payload), PAYLOAD_LOG_LIMIT),
+        )
+
+        request_body = {
+            "api_key": self.settings.tavily_api_key,
+            "urls": urls,
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            http_response = await client.post(self.extract_url, json=request_body)
+            http_response.raise_for_status()
+            response = http_response.json()
+
+        results = response.get("results", [])
+        contents: dict[str, str] = {}
+        failed_urls: list[str] = []
+        for item in results:
+            url = str(item.get("url", "")).strip()
+            raw = str(item.get("raw_content", "") or item.get("content", "")).strip()
+            if url and raw:
+                contents[url] = raw
+            elif url:
+                failed_urls.append(url)
+        logger.info(
+            "tavily.extract.response success=%d failed=%d",
+            len(contents),
+            len(failed_urls),
+        )
+        logger.info(
+            "tavily.extract.response.payload=%s",
+            self._clip(self._to_json(response), PAYLOAD_LOG_LIMIT),
+        )
+        return {"contents": contents, "failed_urls": failed_urls}
 
     @staticmethod
     def _clip(text: str, limit: int) -> str:

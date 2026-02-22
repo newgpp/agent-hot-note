@@ -24,6 +24,8 @@ class GenerateService:
                     "stages": ["research", "write", "edit"],
                     "query": query,
                     "queries": fallback_meta["fallback_queries"] if query else [],
+                    "extracted_urls": output.search_results.get("extracted_urls", []),
+                    "extract_failed_urls": output.search_results.get("extract_failed_urls", []),
                     **fallback_meta,
                 },
             }

@@ -32,9 +32,56 @@ def test_sequential_logs_order(caplog, monkeypatch) -> None:
     assert output.draft
     assert output.edited
     assert output.fallback_decision.triggered is False
+    assert output.search_results["extracted_urls"] == []
+    assert output.search_results["extract_failed_urls"] == []
 
     messages = [record.getMessage() for record in caplog.records]
     research_idx = messages.index("research")
     write_idx = messages.index("write")
     edit_idx = messages.index("edit")
     assert research_idx < write_idx < edit_idx
+
+
+def test_extract_success_enriches_content(monkeypatch) -> None:
+    crew = SequentialCrew()
+    crew.extract_allowed_domains = ["xiaohongshu.com"]
+
+    base = {
+        "query": "topic",
+        "results": [
+            {"title": "a", "url": "https://xiaohongshu.com/p/1", "content": "short"},
+            {"title": "b", "url": "https://example.com/p/2", "content": "short2"},
+        ],
+    }
+
+    async def fake_extract(urls: list[str]) -> dict:
+        assert urls == ["https://xiaohongshu.com/p/1"]
+        return {"contents": {"https://xiaohongshu.com/p/1": "long extracted content"}, "failed_urls": []}
+
+    monkeypatch.setattr(crew.search_provider, "extract", fake_extract)
+    enriched = asyncio.run(crew._enrich_results_with_extract(base))
+
+    assert enriched["extracted_urls"] == ["https://xiaohongshu.com/p/1"]
+    assert enriched["extract_failed_urls"] == []
+    assert enriched["results"][0]["content"] == "long extracted content"
+    assert enriched["results"][1]["content"] == "short2"
+
+
+def test_extract_failure_degrades_to_snippets(monkeypatch) -> None:
+    crew = SequentialCrew()
+    crew.extract_allowed_domains = ["xiaohongshu.com"]
+
+    base = {
+        "query": "topic",
+        "results": [{"title": "a", "url": "https://xiaohongshu.com/p/1", "content": "short"}],
+    }
+
+    async def fake_extract(urls: list[str]) -> dict:
+        raise RuntimeError("extract timeout")
+
+    monkeypatch.setattr(crew.search_provider, "extract", fake_extract)
+    enriched = asyncio.run(crew._enrich_results_with_extract(base))
+
+    assert enriched["extracted_urls"] == []
+    assert enriched["extract_failed_urls"] == ["https://xiaohongshu.com/p/1"]
+    assert enriched["results"][0]["content"] == "short"

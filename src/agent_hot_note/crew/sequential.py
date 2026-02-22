@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from agent_hot_note.config import Settings, get_settings
 from agent_hot_note.pipeline.fallback import FallbackDecision, FallbackPlanner
@@ -44,6 +45,7 @@ class SequentialCrew:
             min_avg_summary_chars=self.settings.fallback_min_avg_summary_chars,
             max_title_dup_ratio=self.settings.fallback_max_title_dup_ratio,
         )
+        self.extract_allowed_domains = self._parse_domains(self.settings.tavily_extract_allowed_domains)
 
     async def run(self, topic: str) -> CrewOutput:
         logger.info("research")
@@ -67,7 +69,8 @@ class SequentialCrew:
         )
         if not primary_decision.triggered:
             logger.info("fallback.not_triggered reason=%s", primary_decision.reason)
-            return primary_result, primary_decision
+            enriched = await self._enrich_results_with_extract(primary_result)
+            return enriched, primary_decision
 
         logger.info("fallback.triggered reason=%s", primary_decision.reason)
         attempted_queries: list[str] = [topic]
@@ -103,7 +106,35 @@ class SequentialCrew:
             queries=attempted_queries,
             domains=attempted_domains,
         )
-        return merged_result, final_decision
+        enriched = await self._enrich_results_with_extract(merged_result)
+        return enriched, final_decision
+
+    async def _enrich_results_with_extract(self, search_results: dict[str, Any]) -> dict[str, Any]:
+        results = list(search_results.get("results", []))
+        if not self.settings.tavily_extract_enabled:
+            search_results["extracted_urls"] = []
+            search_results["extract_failed_urls"] = []
+            return search_results
+
+        candidate_urls = self._select_extract_urls(results)
+        if not candidate_urls:
+            search_results["extracted_urls"] = []
+            search_results["extract_failed_urls"] = []
+            return search_results
+
+        try:
+            extract_result = await self.search_provider.extract(candidate_urls)
+            contents: dict[str, str] = extract_result.get("contents", {})
+            failed_urls = extract_result.get("failed_urls", [])
+            search_results["results"] = self._apply_extracted_content(results, contents)
+            search_results["extracted_urls"] = list(contents.keys())
+            search_results["extract_failed_urls"] = failed_urls
+            return search_results
+        except Exception as exc:
+            logger.warning("extract.failed type=%s detail=%s", exc.__class__.__name__, str(exc))
+            search_results["extracted_urls"] = []
+            search_results["extract_failed_urls"] = candidate_urls
+            return search_results
 
     async def _run_with_crewai_async(self, topic: str, search_results: dict[str, Any]) -> tuple[str, str, str]:
         os.environ.setdefault("OTEL_SDK_DISABLED", str(self.settings.otel_sdk_disabled).lower())
@@ -289,3 +320,34 @@ class SequentialCrew:
                 if len(merged) >= max_items:
                     return merged
         return merged
+
+    def _select_extract_urls(self, results: list[dict[str, Any]]) -> list[str]:
+        allowed = set(self.extract_allowed_domains)
+        urls: list[str] = []
+        for item in results:
+            url = str(item.get("url", "")).strip()
+            if not url:
+                continue
+            host = urlparse(url).netloc.lower()
+            if host.startswith("www."):
+                host = host[4:]
+            if allowed and host not in allowed:
+                continue
+            if url in urls:
+                continue
+            urls.append(url)
+            if len(urls) >= self.settings.tavily_extract_max_urls:
+                break
+        return urls
+
+    @staticmethod
+    def _apply_extracted_content(results: list[dict[str, Any]], contents: dict[str, str]) -> list[dict[str, Any]]:
+        enriched: list[dict[str, Any]] = []
+        for item in results:
+            row = dict(item)
+            url = str(row.get("url", "")).strip()
+            extracted = contents.get(url)
+            if extracted:
+                row["content"] = extracted
+            enriched.append(row)
+        return enriched

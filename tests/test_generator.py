@@ -10,7 +10,12 @@ class _FakeCrew:
             research = "research"
             draft = "draft"
             edited = "edited"
-            search_results = {"query": topic, "results": []}
+            search_results = {
+                "query": topic,
+                "results": [],
+                "extracted_urls": ["https://xiaohongshu.com/p/1"],
+                "extract_failed_urls": ["https://zhihu.com/p/2"],
+            }
             fallback_decision = FallbackDecision(
                 triggered=True,
                 reason="insufficient_results",
@@ -29,4 +34,6 @@ def test_generate_meta_contains_fallback_fields() -> None:
     assert meta["fallback_reason"] == "insufficient_results"
     assert meta["fallback_queries"] == ["AI 笔记", "AI 笔记", "AI 笔记"]
     assert meta["fallback_domains"] == [["xiaohongshu.com"], ["zhihu.com", "bilibili.com"], []]
+    assert meta["extracted_urls"] == ["https://xiaohongshu.com/p/1"]
+    assert meta["extract_failed_urls"] == ["https://zhihu.com/p/2"]
     assert meta["queries"] == ["AI 笔记", "AI 笔记", "AI 笔记"]

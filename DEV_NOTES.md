@@ -159,7 +159,7 @@ sequenceDiagram
   - `SequentialCrew` 接入 fallback
   - `GenerateService` 输出 `meta.fallback_queries` / `meta.fallback_domains`
   - 保持 research/write/edit 任务结构不变
-- PR-4：URL Extract 增强 + 降级
+- PR-4：URL Extract 增强 + 降级（已完成）
   - 新增 Tavily Extract 方法
   - 白名单 URL 抽取正文
   - 失败回退到 snippets，补 `meta.extracted_urls` / `meta.extract_failed_urls`

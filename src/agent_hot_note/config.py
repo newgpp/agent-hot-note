@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     fallback_max_title_dup_ratio: float = Field(default=0.5, alias="FALLBACK_MAX_TITLE_DUP_RATIO")
     fallback_primary_domains: str = Field(default="xiaohongshu.com", alias="FALLBACK_PRIMARY_DOMAINS")
     fallback_secondary_domains: str = Field(default="zhihu.com,bilibili.com", alias="FALLBACK_SECONDARY_DOMAINS")
+    tavily_extract_enabled: bool = Field(default=True, alias="TAVILY_EXTRACT_ENABLED")
+    tavily_extract_max_urls: int = Field(default=2, alias="TAVILY_EXTRACT_MAX_URLS")
+    tavily_extract_allowed_domains: str = Field(
+        default="xiaohongshu.com,zhihu.com,bilibili.com",
+        alias="TAVILY_EXTRACT_ALLOWED_DOMAINS",
+    )
 
 
 @lru_cache(maxsize=1)
