@@ -151,7 +151,7 @@ sequenceDiagram
   - 新增 `pipeline/fallback.py`
   - 定义 fallback 输出结构（queries/domains/reason/triggered）
   - 补单测（不接主流程）
-- PR-2：域名池策略 + 质量判定
+- PR-2：域名池策略 + 质量判定（已完成）
   - 实现 `include_domains` 分层检索（primary -> secondary -> generic）
   - 实现触发规则（结果数/摘要长度/标题重复率）
   - 阈值配置化
