@@ -173,3 +173,28 @@ python3 scripts/eval_router.py \
 
 - 总体准确率 >= 90%
 - `job` 与 `finance` 的召回率 >= 85%
+
+## 7. 术语表（Glossary）
+
+- `workflow`：主流程编排层，当前为 `research -> write -> edit` 串行链路。
+- `GenerationWorkflow`：执行主流程的核心类。
+- `GenerationResult`：主流程输出结构（`research/draft/edited/search_results/fallback_decision`）。
+- `retrieval`：检索编排层，负责搜索、回退和正文抽取。
+- `SearchOrchestrator`：检索调度器，整合 Tavily 搜索、fallback、extract。
+- `fallback`：检索质量不足时的回退机制（主域名 -> 次域名 -> 通用检索）。
+- `FallbackPlanner`：根据结果数量/摘要长度/标题重复率判断是否触发回退。
+- `FallbackDecision`：回退决策结果，包含 `reason/queries/domains/triggered`。
+- `profile` / `topic_profile`：话题分类标签（当前支持 `general/job/finance`）。
+- `topic router`：`_classify_topic_profile`，通过 LLM 将 topic 分类到某个 profile。
+- `TOPIC_DEFAULT_PROFILE`：分类失败或不确定时的默认 profile。
+- `TOPIC_DOMAIN_PROFILES`：按 profile 配置的域名策略集合。
+- `primary_domains`：优先检索域名池。
+- `secondary_domains`：次级检索域名池（primary 不足时尝试）。
+- `extract_allowed_domains`：允许执行正文抽取的域名白名单。
+- `Tavily search`：搜索接口，返回结果标题/摘要/URL。
+- `Tavily extract`：正文抽取接口，按 URL 抽取更完整内容。
+- `search_context`：传给 research 阶段的检索片段上下文。
+- `GenerateService`：服务层，调用 workflow 并组装最终 markdown + meta。
+- `meta`：响应中的可观测信息（profile、fallback、extract 等）。
+- `router eval`：router 提示词评估任务（accuracy、per-class、confusion matrix）。
+- `gold_profile`：评估集中人工标注的真实分类标签。

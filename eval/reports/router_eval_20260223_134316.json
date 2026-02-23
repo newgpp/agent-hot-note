@@ -1,0 +1,137 @@
+{
+  "input": "eval/router_labeled.sample.jsonl",
+  "metrics": {
+    "total": 12,
+    "correct": 12,
+    "accuracy": 1.0,
+    "labels": [
+      "finance",
+      "general",
+      "job"
+    ],
+    "confusion_matrix": {
+      "finance": {
+        "finance": 4,
+        "general": 0,
+        "job": 0
+      },
+      "general": {
+        "finance": 0,
+        "general": 4,
+        "job": 0
+      },
+      "job": {
+        "finance": 0,
+        "general": 0,
+        "job": 4
+      }
+    },
+    "per_class": {
+      "finance": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 4
+      },
+      "general": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 4
+      },
+      "job": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "support": 4
+      }
+    },
+    "error_examples": {}
+  },
+  "rows": [
+    {
+      "topic": "小红书爆款笔记标题怎么写",
+      "gold_profile": "general",
+      "pred_profile": "general",
+      "correct": true,
+      "note": "生活方式内容"
+    },
+    {
+      "topic": "周末上海两天一夜旅游攻略",
+      "gold_profile": "general",
+      "pred_profile": "general",
+      "correct": true,
+      "note": "旅游攻略"
+    },
+    {
+      "topic": "厨房收纳技巧与居家整理",
+      "gold_profile": "general",
+      "pred_profile": "general",
+      "correct": true,
+      "note": "家居生活"
+    },
+    {
+      "topic": "Python 后端工程师面试题整理",
+      "gold_profile": "job",
+      "pred_profile": "job",
+      "correct": true,
+      "note": "面试求职"
+    },
+    {
+      "topic": "简历优化：算法工程师项目经历怎么写",
+      "gold_profile": "job",
+      "pred_profile": "job",
+      "correct": true,
+      "note": "简历求职"
+    },
+    {
+      "topic": "校招产品经理岗位JD解读",
+      "gold_profile": "job",
+      "pred_profile": "job",
+      "correct": true,
+      "note": "岗位JD"
+    },
+    {
+      "topic": "A股半导体板块估值怎么看",
+      "gold_profile": "finance",
+      "pred_profile": "finance",
+      "correct": true,
+      "note": "股票估值"
+    },
+    {
+      "topic": "基金定投策略与回撤控制",
+      "gold_profile": "finance",
+      "pred_profile": "finance",
+      "correct": true,
+      "note": "基金策略"
+    },
+    {
+      "topic": "上市公司财报分析入门",
+      "gold_profile": "finance",
+      "pred_profile": "finance",
+      "correct": true,
+      "note": "财报分析"
+    },
+    {
+      "topic": "AI Agent工程师技能要求与薪资",
+      "gold_profile": "job",
+      "pred_profile": "job",
+      "correct": true,
+      "note": "工程师+薪资"
+    },
+    {
+      "topic": "港股互联网公司财报季观察",
+      "gold_profile": "finance",
+      "pred_profile": "finance",
+      "correct": true,
+      "note": "港股财报"
+    },
+    {
+      "topic": "周末露营清单和拍照姿势",
+      "gold_profile": "general",
+      "pred_profile": "general",
+      "correct": true,
+      "note": "生活方式"
+    }
+  ]
+}
