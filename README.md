@@ -2,6 +2,19 @@
 
 热点笔记生成服务（Phase 3，LangGraph + 真实 DeepSeek + Tavily + Fallback + Extract，异步实现）。
 
+## 0. 架构模式（Anthropic 对照）
+
+本项目对应 Anthropic《Building effective agents》里的 **Workflow** 模式，而不是完全自治的 Agent。
+
+具体包含两种模式组合：
+
+- **Prompt Chaining**：`research -> write -> edit` 固定顺序执行。
+- **Routing**：先将 topic 路由到 `general/job/finance`，再使用对应域名配置进行检索。
+
+参考链接：
+
+- https://www.anthropic.com/engineering/building-effective-agents
+
 ## 1. 环境要求
 
 - Python 3.11
