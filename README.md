@@ -138,3 +138,38 @@ python3 -m pytest -q
 python3 -m pytest tests/test_api.py -q
 python3 -m pytest tests/test_workflow.py -q
 ```
+
+## 6. Router 提示词评估
+
+目标：评估 `_classify_topic_profile` 对 `general/job/finance` 的分类效果。
+
+### 6.1 准备评估集
+
+- 示例文件：`eval/router_labeled.sample.jsonl`
+- 每行一个 JSON，字段：
+  - `topic`：待分类话题
+  - `gold_profile`：人工标注分类（`general/job/finance`）
+  - `note`：可选备注
+
+### 6.2 运行评估
+
+```bash
+python3 scripts/eval_router.py \
+  --input eval/router_labeled.sample.jsonl
+```
+
+运行后会生成：
+
+- `eval/reports/router_eval_<timestamp>.md`
+- `eval/reports/router_eval_<timestamp>.json`
+
+### 6.3 指标解释
+
+- `accuracy`：总体分类准确率
+- `per-class precision/recall/f1`：按分类维度看误判方向
+- `confusion matrix`：查看 `general/job/finance` 之间最容易混淆的路径
+
+建议基线：
+
+- 总体准确率 >= 90%
+- `job` 与 `finance` 的召回率 >= 85%
