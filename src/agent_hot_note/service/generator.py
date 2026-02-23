@@ -1,18 +1,19 @@
 import logging
 from typing import Any
 
-from agent_hot_note.crew.sequential import SequentialCrew
+from agent_hot_note.workflow.generation import GenerationWorkflow
 
 logger = logging.getLogger(__name__)
 
 
 class GenerateService:
-    def __init__(self, crew: SequentialCrew | None = None) -> None:
-        self.crew = crew or SequentialCrew()
+    def __init__(self, workflow: GenerationWorkflow | None = None) -> None:
+        self.workflow = workflow or GenerationWorkflow()
 
-    async def generate(self, topic: str) -> dict:
+    async def generate(self, topic: str, topic_profile: str | None = None) -> dict:
         try:
-            output = await self.crew.run(topic)
+            requested_profile = (topic_profile or "").strip().lower() or None
+            output = await self.workflow.run(topic, profile_id=requested_profile)
             markdown = self._to_markdown(topic, output.research, output.draft, output.edited)
             logger.info("generated markdown chars=%d topic=%s", len(markdown), topic)
             logger.info("generated markdown full:\n%s", markdown)
@@ -30,6 +31,8 @@ class GenerateService:
                 "markdown": markdown,
                 "meta": {
                     "stages": ["research", "write", "edit"],
+                    "requested_topic_profile": requested_profile,
+                    "topic_profile": output.search_results.get("profile_id"),
                     "query": query,
                     "queries": fallback_meta["fallback_queries"] if query else [],
                     "extracted_urls": output.search_results.get("extracted_urls", []),
@@ -60,22 +63,22 @@ class GenerateService:
         }
 
     def _to_markdown(self, topic: str, research: str, draft: str, edited: str) -> str:
+        research_text = research.strip() or "（暂无研究内容）"
+        draft_text = draft.strip() or "（暂无正文草稿）"
+        edited_text = edited.strip() or "（暂无润色内容）"
         return "\n".join(
             [
-                f"# 标题（3个）",
-                f"- {topic}：3步搭建你的高效流程",
-                f"- {topic}：从0到1跑通最小闭环",
-                f"- {topic}：减少试错的实战清单",
+                f"# {topic}",
                 "",
-                "# 正文",
-                research,
+                "## 研究要点",
+                research_text,
                 "",
-                draft,
+                "## 正文",
+                draft_text,
                 "",
-                "# 标签（10个）",
-                "#效率 #方法论 #实操 #复盘 #热点 #内容创作 #增长 #清单 #教程 #经验",
+                "## 发布版",
+                edited_text,
                 "",
-                "<!-- edit-summary -->",
-                edited,
+                "<!-- source-stages: research,draft,edited -->",
             ]
         )

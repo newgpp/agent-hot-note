@@ -53,11 +53,16 @@ cp .env.example .env
 - `FALLBACK_MIN_RESULTS`
 - `FALLBACK_MIN_AVG_SUMMARY_CHARS`
 - `FALLBACK_MAX_TITLE_DUP_RATIO`
-- `FALLBACK_PRIMARY_DOMAINS`
-- `FALLBACK_SECONDARY_DOMAINS`
 - `TAVILY_EXTRACT_ENABLED`
 - `TAVILY_EXTRACT_MAX_URLS`
-- `TAVILY_EXTRACT_ALLOWED_DOMAINS`
+- `TOPIC_DEFAULT_PROFILE`
+- `TOPIC_DOMAIN_PROFILES`
+
+`TOPIC_DOMAIN_PROFILES` 支持为不同话题配置不同抓取域名（当前默认：`general/job/finance`）：
+
+- `general`: 小红书/知乎/B站
+- `job`: Boss直聘/猎聘/前程无忧/智联/拉勾/看准
+- `finance`: 东方财富/同花顺/证券时报/中证网
 
 服务启动后：
 
@@ -72,6 +77,14 @@ curl -X POST "http://127.0.0.1:8000/generate" \
   -d '{"topic":"AI 笔记"}'
 ```
 
+可选地手动指定话题分类（覆盖自动分类）：
+
+```bash
+curl -X POST "http://127.0.0.1:8000/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"topic":"Python Agent工程师技能要求","topic_profile":"job"}'
+```
+
 返回结构示例：
 
 ```json
@@ -79,6 +92,8 @@ curl -X POST "http://127.0.0.1:8000/generate" \
   "markdown": "...",
   "meta": {
     "stages": ["research", "write", "edit"],
+    "requested_topic_profile": "job",
+    "topic_profile": "job",
     "query": "AI 笔记",
     "queries": ["AI 笔记", "AI 笔记", "AI 笔记"],
     "fallback_triggered": true,
@@ -108,5 +123,5 @@ python3 -m pytest -q
 
 ```bash
 python3 -m pytest tests/test_api.py -q
-python3 -m pytest tests/test_crew.py -q
+python3 -m pytest tests/test_workflow.py -q
 ```

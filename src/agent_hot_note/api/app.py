@@ -21,5 +21,5 @@ async def healthz() -> dict:
 
 @app.post("/generate", response_model=GenerateResponse)
 async def generate(req: GenerateRequest) -> GenerateResponse:
-    result = await service.generate(req.topic)
+    result = await service.generate(req.topic, topic_profile=req.topic_profile)
     return GenerateResponse(**result)

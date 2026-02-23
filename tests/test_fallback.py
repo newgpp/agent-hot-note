@@ -1,4 +1,4 @@
-from agent_hot_note.pipeline.fallback import FallbackDecision, FallbackPlanner
+from agent_hot_note.retrieval.fallback import FallbackDecision, FallbackPlanner
 
 
 def _results(

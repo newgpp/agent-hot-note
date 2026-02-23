@@ -12,21 +12,26 @@ def test_healthz() -> None:
 
 
 def test_generate_markdown_shape(monkeypatch) -> None:
-    async def fake_generate(topic: str) -> dict:
+    async def fake_generate(topic: str, topic_profile: str | None = None) -> dict:
         return {
             "markdown": "\n".join(
                 [
-                    "# 标题（3个）",
-                    "- t1",
-                    "- t2",
-                    "- t3",
-                    "# 正文",
-                    "body",
-                    "# 标签（10个）",
-                    "#a #b #c #d #e #f #g #h #i #j",
+                    f"# {topic}",
+                    "## 研究要点",
+                    "research",
+                    "## 正文",
+                    "draft",
+                    "## 发布版",
+                    "edited",
                 ]
             ),
-            "meta": {"stages": ["research", "write", "edit"], "query": topic, "queries": [topic]},
+            "meta": {
+                "stages": ["research", "write", "edit"],
+                "requested_topic_profile": topic_profile,
+                "topic_profile": topic_profile or "general",
+                "query": topic,
+                "queries": [topic],
+            },
         }
 
     monkeypatch.setattr(service, "generate", fake_generate)
@@ -37,7 +42,22 @@ def test_generate_markdown_shape(monkeypatch) -> None:
     assert "markdown" in data
     assert "meta" in data
     markdown = data["markdown"]
-    assert "# 标题（3个）" in markdown
-    assert "# 正文" in markdown
-    assert "# 标签（10个）" in markdown
-    assert markdown.count("#") >= 10
+    assert "# AI 笔记" in markdown
+    assert "## 研究要点" in markdown
+    assert "## 正文" in markdown
+    assert "## 发布版" in markdown
+
+
+def test_generate_with_topic_profile(monkeypatch) -> None:
+    captured: dict[str, str | None] = {"topic_profile": None}
+
+    async def fake_generate(topic: str, topic_profile: str | None = None) -> dict:
+        captured["topic_profile"] = topic_profile
+        return {"markdown": f"# {topic}", "meta": {"topic_profile": topic_profile}}
+
+    monkeypatch.setattr(service, "generate", fake_generate)
+
+    resp = client.post("/generate", json={"topic": "AI 笔记", "topic_profile": "job"})
+    assert resp.status_code == 200
+    assert captured["topic_profile"] == "job"
+    assert resp.json()["meta"]["topic_profile"] == "job"

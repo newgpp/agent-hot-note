@@ -1,7 +1,7 @@
 import logging
 import asyncio
 
-from agent_hot_note.crew.sequential import SequentialCrew
+from agent_hot_note.workflow.generation import GenerationWorkflow
 from agent_hot_note.providers.search.tavily import TavilySearch
 
 
@@ -16,17 +16,20 @@ def test_sequential_logs_order(caplog, monkeypatch) -> None:
         }
 
     async def fake_run_with_langgraph(self, topic: str, search_results: dict) -> tuple[str, str, str]:
-        logger = logging.getLogger("agent_hot_note.crew.sequential")
+        logger = logging.getLogger("agent_hot_note.workflow.generation")
         logger.info("write")
         logger.info("edit")
         return "r", "d", "e"
 
     monkeypatch.setattr(TavilySearch, "search", fake_search)
-    monkeypatch.setattr(SequentialCrew, "_run_with_langgraph_async", fake_run_with_langgraph)
-    crew = SequentialCrew()
+    monkeypatch.setattr(GenerationWorkflow, "_run_with_langgraph_async", fake_run_with_langgraph)
+    async def fake_profile(self, topic: str) -> str:
+        return "general"
+    monkeypatch.setattr(GenerationWorkflow, "_classify_topic_profile", fake_profile)
+    workflow = GenerationWorkflow()
 
     with caplog.at_level(logging.INFO):
-        output = asyncio.run(crew.run("测试主题"))
+        output = asyncio.run(workflow.run("测试主题"))
 
     assert output.research
     assert output.draft
@@ -43,8 +46,9 @@ def test_sequential_logs_order(caplog, monkeypatch) -> None:
 
 
 def test_extract_success_enriches_content(monkeypatch) -> None:
-    crew = SequentialCrew()
-    crew.extract_allowed_domains = ["xiaohongshu.com"]
+    workflow = GenerationWorkflow()
+    orchestrator = workflow.search_orchestrator
+    orchestrator.extract_allowed_domains = ["xiaohongshu.com"]
 
     base = {
         "query": "topic",
@@ -58,8 +62,8 @@ def test_extract_success_enriches_content(monkeypatch) -> None:
         assert urls == ["https://xiaohongshu.com/p/1"]
         return {"contents": {"https://xiaohongshu.com/p/1": "long extracted content"}, "failed_urls": []}
 
-    monkeypatch.setattr(crew.search_provider, "extract", fake_extract)
-    enriched = asyncio.run(crew._enrich_results_with_extract(base))
+    monkeypatch.setattr(orchestrator.search_provider, "extract", fake_extract)
+    enriched = asyncio.run(orchestrator._enrich_results_with_extract(base))
 
     assert enriched["extracted_urls"] == ["https://xiaohongshu.com/p/1"]
     assert enriched["extract_failed_urls"] == []
@@ -68,8 +72,9 @@ def test_extract_success_enriches_content(monkeypatch) -> None:
 
 
 def test_extract_failure_degrades_to_snippets(monkeypatch) -> None:
-    crew = SequentialCrew()
-    crew.extract_allowed_domains = ["xiaohongshu.com"]
+    workflow = GenerationWorkflow()
+    orchestrator = workflow.search_orchestrator
+    orchestrator.extract_allowed_domains = ["xiaohongshu.com"]
 
     base = {
         "query": "topic",
@@ -79,9 +84,43 @@ def test_extract_failure_degrades_to_snippets(monkeypatch) -> None:
     async def fake_extract(urls: list[str]) -> dict:
         raise RuntimeError("extract timeout")
 
-    monkeypatch.setattr(crew.search_provider, "extract", fake_extract)
-    enriched = asyncio.run(crew._enrich_results_with_extract(base))
+    monkeypatch.setattr(orchestrator.search_provider, "extract", fake_extract)
+    enriched = asyncio.run(orchestrator._enrich_results_with_extract(base))
 
     assert enriched["extracted_urls"] == []
     assert enriched["extract_failed_urls"] == ["https://xiaohongshu.com/p/1"]
     assert enriched["results"][0]["content"] == "short"
+
+
+def test_profile_domain_resolution_uses_configured_profile() -> None:
+    workflow = GenerationWorkflow()
+    profile_id, primary, secondary, extract_allowed = workflow.search_orchestrator._resolve_profile_domains("job")
+    assert profile_id == "job"
+    assert "bosszhipin.com" in primary
+    assert "51job.com" in secondary
+    assert "bosszhipin.com" in extract_allowed
+
+
+def test_classify_topic_profile_uses_llm_result(monkeypatch) -> None:
+    workflow = GenerationWorkflow()
+
+    async def fake_ask_llm(prompt: str) -> str:
+        return "job"
+
+    monkeypatch.setattr(workflow, "_ask_llm", fake_ask_llm)
+    profile = asyncio.run(workflow._classify_topic_profile("Python Agent工程师技能要求"))
+    assert profile == "job"
+
+
+def test_classify_topic_profile_prompt_contains_keyword_hints(monkeypatch) -> None:
+    workflow = GenerationWorkflow()
+    captured = {"prompt": ""}
+
+    async def fake_ask_llm(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return "general"
+
+    monkeypatch.setattr(workflow, "_ask_llm", fake_ask_llm)
+    _ = asyncio.run(workflow._classify_topic_profile("示例话题"))
+    assert "job keywords:" in captured["prompt"]
+    assert "finance keywords:" in captured["prompt"]
